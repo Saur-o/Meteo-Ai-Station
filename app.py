@@ -22,7 +22,7 @@ app.mount("/", StaticFiles(directory="static", html=True), name="static")
 @app.get("/last_read")
 async def getLastRead():
 	async with aiosqlite.connect("sensor.db") as db:
-		cursor = await db.execute("SELECT * FROM dataset ORDER BY timestamp DESC;")
+		cursor = await db.execute("SELECT * FROM dataset ORDER BY timestamp DESC LIMIT 1;")
 		result = await cursor.fetchone()
 	return result
 
@@ -66,10 +66,11 @@ async def fastApiStartup():
 	threading.Thread(target=start_mqtt, daemon=True).start()
 
 def start_mqtt():
-	mqttClient.connect(host = "192.168.4.1", port = 1887, clean_start = MQTT_CLEAN_START_FIRST_ONLY)
+	mqttClient.on_message = on_message
+	mqttClient.connect(host = "192.168.4.1", port = 1887, clean_start = mqtt.MQTT_CLEAN_START_FIRST_ONLY)
 	mqttClient.subscribe("stazione1/sensori", 1)
 	mqttClient.subscribe("stazione1/immagini", 2)
-	mqttClient.on_message = on_message
+	mqttClient.loop_forever()
 
 
 
