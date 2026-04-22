@@ -1,11 +1,9 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 import paho.mqtt.client as mqtt
-import json, asyncio
-import os
-import threading
-from datetime import Datetime
 import aiosqlite
+import json, asyncio
+import threading
 
 loop = None
 
@@ -13,9 +11,9 @@ app = FastAPI()
 clients: list[asyncio.Queue] = []
 
 mqttClient = mqtt.Client()
-mqttClient.connect(host = "192.168.4.1", port = 1887, clean_start = MQTT_CLEAN_START_FIRST_ONLY)
-mqttClient.subscribe("stazione1/sensori", 1)
-mqttClient.subscribe("stazione1/immagini", 2)
+#mqttClient.connect(host = "192.168.4.1", port = 1887, clean_start = MQTT_CLEAN_START_FIRST_ONLY)
+#mqttClient.subscribe("stazione1/sensori", 1)
+#mqttClient.subscribe("stazione1/immagini", 2)
 
 ##Versione MQTT broker:mosquitto version 2.0.21
 
@@ -59,13 +57,21 @@ async def insert_data(data: dict):
 
 def save_image(timestamp: str, image: bytes):
 	with open(f"{timestamp}.jpg", "wb") as f:
-			f.write(image)
+		f.write(image)
 
 @app.on_event("startup")
 async def fastApiStartup():
 	global loop
 	loop = asyncio.get_event_loop()
 	threading.Thread(target=start_mqtt, daemon=True).start()
+
+def start_mqtt():
+	mqttClient.connect(host = "192.168.4.1", port = 1887, clean_start = MQTT_CLEAN_START_FIRST_ONLY)
+	mqttClient.subscribe("stazione1/sensori", 1)
+	mqttClient.subscribe("stazione1/immagini", 2)
+	mqttClient.on_message = on_message
+
+
 
 
 		
