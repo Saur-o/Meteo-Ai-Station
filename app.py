@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 import paho.mqtt.client as mqtt
 import aiosqlite
 import json, asyncio
@@ -25,6 +26,24 @@ async def getLastRead():
 		cursor = await db.execute("SELECT * FROM dataset ORDER BY timestamp DESC LIMIT 1;")
 		result = await cursor.fetchone()
 	return result
+
+@app.get("/sse")
+async def establish_sse():
+	q = asyncio.queue()
+	clients.append(q)
+	
+	async def event_generator():
+		try:
+			while True:
+				try:	
+					data = await asyncio.wait_for(q.get(), timeout=30.0)
+					yield f"data: {json.dumps(data)}\n\n"
+				except asynctio.TimeOut:
+					yield ":"Keep Alive Message\n\n"
+		except asyncio.CancelledError:
+			clients.remove(q)
+
+	return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 async def broadcast(data: dict):
 	for q in clients:
