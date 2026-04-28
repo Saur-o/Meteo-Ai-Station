@@ -5,6 +5,12 @@ import paho.mqtt.client as mqtt
 import aiosqlite
 import json, asyncio
 import threading
+import os
+
+FILE_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(FILE_DIRECTORY, "sensors.db")
+IMAGES_DIRECTORY = os.path.join(FILE_DIRECTORY, "immagini")
+STATIC_DIRECTORY = os.path.join(FILE_DIRECTORY, "static")
 
 loop = None
 
@@ -18,18 +24,19 @@ mqttClient = mqtt.Client()
 
 ##Versione MQTT broker:mosquitto version 2.0.21
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
-
 @app.get("/last_read")
 async def getLastRead():
-	async with aiosqlite.connect("sensor.db") as db:
+	async with aiosqlite.connect(DB_FILE) as db:
+		db.row_factory = aiosqlite.Row
 		cursor = await db.execute("SELECT * FROM dataset ORDER BY timestamp DESC LIMIT 1;")
-		result = await cursor.fetchone()
+		result = dict(await cursor.fetchone())
+	result.pop("timestamp")
+	result.pop("file_path")
 	return result
 
 @app.get("/sse")
 async def establish_sse():
-	q = asyncio.queue()
+	q = asyncio.Queue()
 	clients.append(q)
 	
 	async def event_generator():
@@ -38,12 +45,14 @@ async def establish_sse():
 				try:	
 					data = await asyncio.wait_for(q.get(), timeout=30.0)
 					yield f"data: {json.dumps(data)}\n\n"
-				except asynctio.TimeOut:
-					yield ":"Keep Alive Message\n\n"
+				except asyncio.TimeoutError:
+					yield ": Keep Alive Message\n\n"
 		except asyncio.CancelledError:
 			clients.remove(q)
 
 	return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+app.mount("/", StaticFiles(directory=STATIC_DIRECTORY, html=True), name="static")
 
 async def broadcast(data: dict):
 	for q in clients:
@@ -64,8 +73,21 @@ def on_message(client, userdata, message):
 async def insert_data(data: dict):
 	#riempire campi e dati inseriti quando la convenzione di quello che inviamo e il nome dei campi è assicurato
 	try:
-		async with aiosqlite.connect("sensor.db") as db:
-			await db.execute("INSERT INTO dataset () VALUES ();")
+		image_path = os.path.join(IMAGES_DIRECTORY, f"{data['timestamp']}.jpg")
+		async with aiosqlite.connect(DB_FILE) as db:
+			await db.execute("INSERT INTO dataset (timestamp, temperatura, pressione, umidita, luce, vento, monossido_carb, qualita_aria, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);", 
+				(
+					data["timestamp"], 
+					data["temperatura"], 
+					data["pressione"], 
+					data["umidita"], 
+					data["luce"], 
+					data["vento"], 
+					data["monossido_carb"], 
+					data["qualita_aria"], 
+					image_path
+				)
+			)
 			await db.commit()
 	except aiosqlite.IntegrityError as e:
 		return
@@ -75,11 +97,26 @@ async def insert_data(data: dict):
 
 
 def save_image(timestamp: str, image: bytes):
-	with open(f"{timestamp}.jpg", "wb") as f:
+	image_path = os.path.join(IMAGES_DIRECTORY, f"{timestamp}.jpg")
+	with open(image_path, "wb") as f:
 		f.write(image)
 
 @app.on_event("startup")
 async def fastApiStartup():
+	async with aiosqlite.connect(DB_FILE) as db:
+		await db.execute("CREATE TABLE IF NOT EXISTS dataset(" \
+		"timestamp     TEXT    NOT NULL," \
+		"temperatura   DOUBLE  NOT NULL," \
+		"pressione     DOUBLE  NOT NULL," \
+		"umidita       DOUBLE  NOT NULL," \
+		"luce          DOUBLE," \
+		"vento         DOUBLE," \
+		"monossido_carb DOUBLE," \
+		"qualita_aria  DOUBLE," \
+		"file_path     TEXT    NOT NULL," \
+		"PRIMARY KEY (timestamp));")
+		await db.commit()
+
 	global loop
 	loop = asyncio.get_event_loop()
 	threading.Thread(target=start_mqtt, daemon=True).start()
