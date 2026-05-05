@@ -123,7 +123,7 @@ async def fastApiStartup():
 
 def start_mqtt():
 	mqttClient.on_message = on_message
-	mqttClient.connect(host = "192.168.4.1", port = 1887, clean_start = mqtt.MQTT_CLEAN_START_FIRST_ONLY)
+	mqttClient.connect(host = "192.168.4.1", port = 1883, clean_start = mqtt.MQTT_CLEAN_START_FIRST_ONLY)
 	mqttClient.subscribe("stazione1/sensori", 1)
 	mqttClient.subscribe("stazione1/immagini", 2)
 	mqttClient.loop_forever()
