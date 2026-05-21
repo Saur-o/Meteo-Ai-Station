@@ -28,8 +28,8 @@ const char *password = "m3Teo$t4tion";
 
 const char* mqtt_server = "mqtt-broker.lan"; // <--- METTI L'IP DEL RASPBERRY
 const int mqtt_port = 1883;
-const char* mqtt_topic_dati = "stazione1/meteo/dati";
-const char* mqtt_topic_img = "stazione1/meteo/immagini";
+const char* mqtt_topic_dati = "stazione1/sensori";
+const char* mqtt_topic_img = "stazione1/immagini";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
