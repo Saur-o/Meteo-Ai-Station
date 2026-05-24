@@ -1,0 +1,60 @@
+from flask import Flask, request
+import os
+import datetime
+
+app = Flask(__name__)
+
+# Crea la cartella per le foto se non esiste
+SAVE_DIR = "foto_ricevute"
+if not os.path.exists(SAVE_DIR):
+    os.makedirs(SAVE_DIR)
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    # L'ESP32 invia i dati grezzi (raw binary) della JPEG
+    img_data = request.data
+    
+    if img_data:
+        # Genera un nome file con data e ora per non sovrascrivere
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"esp32_{timestamp}.jpg"
+        filepath = os.path.join(SAVE_DIR, filename)
+        
+        with open(filepath, "wb") as f:
+            f.write(request.data)
+            f.flush()           # Forza la scrittura immediata su disco
+            os.fsync(f.fileno()) # Assicura che il sistema operativo confermi il salvataggio
+            
+        print(f"[SUCCESS] Foto ricevuta! Salvata come: {filename} ({len(img_data)} bytes)")
+        return "OK", 200
+    else:
+        print("[ERROR] Ricevuta richiesta vuota")
+        return "No data", 400
+# Rotta per dati ambientali
+@app.route('/data', methods=['POST'])
+def receive_data():
+    # Estraiamo il JSON inviato dall'ESP32
+    data = request.json
+    
+    if data:
+        # Stampiamo i dati a console per vederli in tempo reale
+        print("\n" + "="*30)
+        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] DATI RICEVUTI")
+        print(f"Temperatura: {data.get('temp')} °C")
+        print(f"Umidità:     {data.get('hum')} %")
+        print(f"Pressione:   {data.get('pres')} hPa")
+        print(f"Luce:        {data.get('light')} %")
+        print(f"Vento:       {data.get('wind')} km/h")
+        print(f"CO:          {data.get('co')} ppm")
+        print(f"Aria (Qual): {data.get('air')} ppm")
+        print("="*30 + "\n")
+        
+        return "Dati ricevuti con successo", 200
+    else:
+        print("[ERROR] Ricevuta richiesta dati vuota o non JSON")
+        return "No JSON data", 400        
+
+if __name__ == '__main__':
+    # L'IP '0.0.0.0' permette al PC di ascoltare i messaggi dall'ESP32 sulla rete locale
+    print("Server in ascolto sulla porta 5000...")
+    app.run(host='0.0.0.0', port=5000)
