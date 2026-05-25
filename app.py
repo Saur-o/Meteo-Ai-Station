@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile
+#https://fastapi.tiangolo.com/tutorial/request-files/#file-parameters-with-uploadfile
+#https://fastapi.tiangolo.com/tutorial/body/#create-your-data-model
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
 import paho.mqtt.client as mqtt
@@ -62,13 +64,23 @@ def on_message(client, userdata, message):
 	if message.topic == "stazione1/sensori":
 		data = json.loads(message.payload.decode("utf-8"))
 		asyncio.run_coroutine_threadsafe(insert_data(data), loop)
-	elif message.topic == "stazione1/immagini":
-		#vedere di quanti byte è composto il metadata dell'immagine con il timestamp
-		data = message.payload
-		timestampImage = (data[:19]).decode("utf-8")
-		image = data[19:]
-		threading.Thread(target=save_image, args=(timestampImage, image)).start()
+	#elif message.topic == "stazione1/immagini":
+	#	#vedere di quanti byte è composto il metadata dell'immagine con il timestamp
+	#	data = message.payload
+	#	timestampImage = (data[:19]).decode("utf-8")
+	#	image = data[19:]
+	#	threading.Thread(target=save_image, args=(timestampImage, image)).start()
 		
+@app.post("/upload", status_code = 201)
+async def save_image(file: Annotated[bytes, File()]):
+	timestamp = (file[:19]).decode("utf-8")
+	image_path = os.path.join(IMAGES_DIRECTORY, f"{timestamp}.jpg")
+	data = file[19:]
+	with open(image_path, "wb") as f:
+		f.write(data)
+		os.fsync(f.fileno())
+	print(f"[HTTP - POST] Immagine {timestamp}.jpg ricevuta")
+	return {"timestamp" : f"{timestamp}.jpg"}
 
 async def insert_data(data: dict):
 	#riempire campi e dati inseriti quando la convenzione di quello che inviamo e il nome dei campi è assicurato
@@ -95,12 +107,6 @@ async def insert_data(data: dict):
 	#broadcast flag to each client
 	await broadcast({"event": "new_reading"})
 
-
-def save_image(timestamp: str, image: bytes):
-	image_path = os.path.join(IMAGES_DIRECTORY, f"{timestamp}.jpg")
-	with open(image_path, "wb") as f:
-		f.write(image)
-
 @app.on_event("startup")
 async def fastApiStartup():
 	async with aiosqlite.connect(DB_FILE) as db:
@@ -125,7 +131,7 @@ def start_mqtt():
 	mqttClient.on_message = on_message
 	mqttClient.connect(host = "192.168.4.1", port = 1883, clean_start = mqtt.MQTT_CLEAN_START_FIRST_ONLY)
 	mqttClient.subscribe("stazione1/sensori", 1)
-	mqttClient.subscribe("stazione1/immagini", 1)
+	#mqttClient.subscribe("stazione1/immagini", 1)
 	mqttClient.loop_forever()
 
 
