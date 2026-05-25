@@ -78,6 +78,7 @@ async def save_image(file: Annotated[bytes, File()]):
 	data = file[19:]
 	with open(image_path, "wb") as f:
 		f.write(data)
+		f.flush()
 		os.fsync(f.fileno())
 	print(f"[HTTP - POST] Immagine {timestamp}.jpg ricevuta")
 	return {"timestamp" : f"{timestamp}.jpg"}
