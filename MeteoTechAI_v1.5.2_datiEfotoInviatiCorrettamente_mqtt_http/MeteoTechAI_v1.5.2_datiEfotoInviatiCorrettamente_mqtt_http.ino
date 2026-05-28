@@ -173,10 +173,11 @@ void setup() {
   digitalWrite(PIN_ATTIVAZIONE_GAS_SENSORS, HIGH); 
   Serial.println("[POWER] Riscaldatori MQ Attivati");
   delay(100);
-
+*/
   inizializzaSensori();
   delay(500);
-}*/
+
+}
   
 
 unsigned long previousMillis = 0;
