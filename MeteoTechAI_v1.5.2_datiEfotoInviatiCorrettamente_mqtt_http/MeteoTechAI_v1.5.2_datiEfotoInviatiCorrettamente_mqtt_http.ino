@@ -15,7 +15,7 @@
 #define I2C_SCL 1
 
 // pin attivazione transistor
-#define PIN_ATTIVAZIONE_GAS_SENSORS 21
+//#define PIN_ATTIVAZIONE_GAS_SENSORS 21
 
 // ===========================
 // Enter your WiFi credentials
@@ -165,7 +165,7 @@ void setup() {
   Serial.print("Camera Ready! Use 'http://");
   Serial.print(WiFi.localIP());
   Serial.println("' to connect");
-
+/*
   pinMode(PIN_ATTIVAZIONE_GAS_SENSORS, OUTPUT);
   
   // ACCENSIONE IMMEDIATA
@@ -176,7 +176,8 @@ void setup() {
 
   inizializzaSensori();
   delay(500);
-}
+}*/
+  
 
 unsigned long previousMillis = 0;
 const long interval = 20000; // Intervallo desiderato (20 secondi)
@@ -316,15 +317,25 @@ void inviaFotoPC() {
   }
   Serial.printf("Foto scattata! Dimensione: %u bytes\n", fb->len);
 
-  // 2. Prepara la richiesta HTTP con TIMEOUT CORTO
-  HTTPClient http;
-  http.setTimeout(20000); // Se non invia entro 5 secondi, annulla (evita blocchi infiniti)
+  // 2. GENERAZIONE TIMESTAMP (Spostato prima dell'invio)
+  time_t t_sec = fb->timestamp.tv_sec;
+  struct tm *timeinfo = localtime(&t_sec);
   
-  // Cambia l'IP con quello del tuo PC se necessario
-  http.begin("http://STAZIONE_METEO1_5H:8000/upload"); 
-  http.addHeader("Content-Type", "image/jpeg");
+  char timestamp[20];
+  strftime(timestamp, sizeof(timestamp), "%Y-%m-%d_%H-%M-%S", timeinfo);
 
-  // 3. Invia
+  // 3. Prepara la richiesta HTTP
+  HTTPClient http;
+  http.setTimeout(20000); // 20 secondi di timeout
+  
+  http.begin("http://mqtt-broker.lan:8000/upload"); 
+  http.addHeader("Content-Type", "image/jpeg");
+  
+  // --- INSERIMENTO HEADER PERSONALIZZATO ---
+  // Inviamo il timestamp. Sul server lo leggerai cercando l'header "X-Image-Timestamp"
+  http.addHeader("X-Image-Timestamp", timestamp);
+
+  // 4. Invia la foto
   unsigned long startTime = millis();
   int httpResponseCode = http.POST(fb->buf, fb->len);
   unsigned long duration = millis() - startTime;
@@ -335,7 +346,9 @@ void inviaFotoPC() {
     Serial.printf("ERRORE INVIO [%d ms]: %s\n", duration, http.errorToString(httpResponseCode).c_str());
   }
 
-  // 4. Pulizia
+  // 5. Chiamata ai dati e Pulizia
+  inviaDatiMQTT(timestamp); // Passiamo lo stesso timestamp anche al JSON su MQTT
+
   http.end();
   esp_camera_fb_return(fb); 
   Serial.println("Memoria liberata.");
