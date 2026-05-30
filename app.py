@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, Request
 #https://fastapi.tiangolo.com/tutorial/request-files/#file-parameters-with-uploadfile
 #https://fastapi.tiangolo.com/tutorial/body/#create-your-data-model
 from fastapi.staticfiles import StaticFiles
@@ -53,6 +53,18 @@ async def establish_sse():
 			clients.remove(q)
 
 	return StreamingResponse(event_generator(), media_type="text/event-stream")
+		
+@app.post("/upload", status_code = 201)
+async def save_image(request: Request):
+	timestamp = request.headers.get("X-Image-Timestamp")
+	image_path = os.path.join(IMAGES_DIRECTORY, f"{timestamp}.jpg")
+	data = await request.body()
+	with open(image_path, "wb") as f:
+		f.write(data)
+		f.flush()
+		os.fsync(f.fileno())
+	print(f"[HTTP - POST] Immagine {timestamp}.jpg ricevuta")
+	return {"timestamp" : f"{timestamp}.jpg"}
 
 app.mount("/", StaticFiles(directory=STATIC_DIRECTORY, html=True), name="static")
 
@@ -70,18 +82,6 @@ def on_message(client, userdata, message):
 	#	timestampImage = (data[:19]).decode("utf-8")
 	#	image = data[19:]
 	#	threading.Thread(target=save_image, args=(timestampImage, image)).start()
-		
-@app.post("/upload", status_code = 201)
-async def save_image(file: Annotated[bytes, File()]):
-	timestamp = (file[:19]).decode("utf-8")
-	image_path = os.path.join(IMAGES_DIRECTORY, f"{timestamp}.jpg")
-	data = file[19:]
-	with open(image_path, "wb") as f:
-		f.write(data)
-		f.flush()
-		os.fsync(f.fileno())
-	print(f"[HTTP - POST] Immagine {timestamp}.jpg ricevuta")
-	return {"timestamp" : f"{timestamp}.jpg"}
 
 async def insert_data(data: dict):
 	#riempire campi e dati inseriti quando la convenzione di quello che inviamo e il nome dei campi è assicurato
