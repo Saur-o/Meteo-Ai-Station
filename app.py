@@ -4,12 +4,13 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 # pyrefly: ignore [missing-import]
 import paho.mqtt.client as mqtt
+import httpx
 # pyrefly: ignore [missing-import]
 import aiosqlite
 import json, asyncio
 import threading
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 
 FILE_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(FILE_DIRECTORY, "sensors.db")
@@ -39,6 +40,9 @@ app.add_middleware(
 
 clients: list[asyncio.Queue] = []
 
+last_reading = {}
+current_prediction = []
+
 mqttClient = mqtt.Client()
 #mqttClient.connect(host = "192.168.4.1", port = 1887, clean_start = MQTT_CLEAN_START_FIRST_ONLY)
 #mqttClient.subscribe("stazione1/sensori", 1)
@@ -48,10 +52,8 @@ mqttClient = mqtt.Client()
 
 @app.get("/last_read")
 async def getLastRead():
-	async with aiosqlite.connect(DB_FILE) as db:
-		db.row_factory = aiosqlite.Row
-		cursor = await db.execute("SELECT * FROM dataset ORDER BY timestamp DESC LIMIT 1;")
-		result = dict(await cursor.fetchone())
+	global last_reading
+	result = last_reading.copy()
 	result.pop("timestamp")
 	result.pop("file_path")
 	return result
@@ -119,7 +121,8 @@ async def getPrevisioneOggi():
 	# future. Quando l'AI sarà integrata, riempire "ore" con oggetti:
 	#   {ora, temperatura, umidita, pressione, vento, luce,
 	#    monossido_carb, qualita_aria, codiceMeteo}
-	return {"ore": []}
+	global current_prediction
+	return {"ore": current_prediction}
 
 
 app.mount("/", StaticFiles(directory=STATIC_DIRECTORY, html=True), name="static")
@@ -143,7 +146,11 @@ def on_message(client, userdata, message):
 async def insert_data(data: dict):
 	#riempire campi e dati inseriti quando la convenzione di quello che inviamo e il nome dei campi è assicurato
 	try:
+		global last_reading
+		last_reading = data
 		image_path = os.path.join(IMAGES_DIRECTORY, f"{data['timestamp']}.jpg")
+		last_reading["file_path"] = image_path		
+
 		async with aiosqlite.connect(DB_FILE) as db:
 			await db.execute("INSERT INTO dataset (timestamp, temperatura, pressione, umidita, luce, vento, monossido_carb, qualita_aria, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);", 
 				(
@@ -162,6 +169,12 @@ async def insert_data(data: dict):
 	except aiosqlite.IntegrityError as e:
 		return
 	
+	prediction_task = asyncio.create_task(new_prediction())
+	try:
+		await prediction_task
+	except httpx.RequestError as e:
+		print("Could not call inference server")
+
 	#broadcast flag to each client
 	await broadcast({"event": "new_reading"})
 
@@ -170,6 +183,43 @@ def save_image(timestamp: str, image: bytes):
 	image_path = os.path.join(IMAGES_DIRECTORY, f"{timestamp}.jpg")
 	with open(image_path, "wb") as f:
 		f.write(image)
+
+async def new_prediction():
+	global current_prediction
+	num_predictions = 4
+	current_window = []
+	starting_time = None
+
+	async with aiosqlite.connect(DB_FILE) as db:
+		db.row_factory = aiosqlite.Row
+		cursor = await db.execute("SELECT * FROM (SELECT timestamp, temperatura, pressione, umidita, luce FROM dataset ORDER BY timestamp DESC LIMIT 24) ORDER BY timestamp ASC;")
+		rows = [dict(row) for row in await cursor.fetchall()]
+		
+		if len(rows) < 24:
+			return
+
+		starting_time = rows[- 1]["timestamp"]
+		for row in rows:
+			row.pop("timestamp")
+		current_window = rows
+		
+	starting_time = datetime.strptime(starting_time, "%Y-%m-%d_%H-%M-%S")
+	new_prediction = []
+
+	async with httpx.AsyncClient() as client:
+		for i in range(num_predictions):
+			starting_time = starting_time + timedelta(minutes=15)
+			prediction = (await client.post("http://localhost:8000/prediction", json=current_window)).json()["data"]
+			current_window.pop(0)
+			current_window.append(prediction.copy())
+			prediction["ora"] = starting_time
+			new_prediction.append(prediction)
+			# invece di fare .copy()
+			# esposto = prediction | {"ora": starting_time}
+			# new_prediction.append(esposto)		
+		
+	current_prediction = new_prediction
+		
 
 @app.on_event("startup")
 async def fastApiStartup():
